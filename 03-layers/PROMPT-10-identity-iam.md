@@ -10,18 +10,18 @@ You are a senior SRE building the `10-identity` layer for both staging and produ
 
 - [ ] PROMPT-01 complete: exec roles and state buckets exist.
 - [ ] PROMPT-02 complete: infra repo scaffolded.
-- [ ] PROMPT-04 complete **or deferred**: if staging EKS is not in this account yet, skip Atlantis IRSA pieces and proceed with non-EKS identity work; revisit after cluster transfer.
+- [ ] PROMPT-04 Part A complete **or in progress**: Atlantis IAM role `<ORG>-uat-atlantis` (EC2 instance profile) should be defined here; EKS IRSA pieces wait for Part B.
 - [ ] `PROMPT-00` inventory complete: existing IAM roles listed. Import candidates identified.
 - [ ] `fill-in-the-blanks.local.md` has: `<ORG>`, `<STAGING_ACCOUNT_ID>`, `<PRODUCTION_ACCOUNT_ID>`. OIDC fields only if EKS is already in this account.
 
-Until Atlantis exists, applies for this layer use the interim local-apply exception (exec role), documented in git/PRs.
+Prefer Atlantis for applies once EC2 Atlantis is healthy; until then use the interim local-apply exception (exec role), documented in git/PRs.
 
 ---
 
 ## 3. Required inputs
 
 1. `<ORG>`, `<STAGING_ACCOUNT_ID>`, `<PRODUCTION_ACCOUNT_ID>`.
-2. `<STAGING_OIDC_URL>` and `<STAGING_OIDC_ARN>` — **only if** staging EKS is already in this account; otherwise defer IRSA/Atlantis role work.
+2. Atlantis role: EC2 instance-profile trust now (from PROMPT-04 Part A). `<STAGING_OIDC_URL>` / `<STAGING_OIDC_ARN>` only when migrating to EKS (Part B).
 3. List of existing IAM roles from the inventory that must be imported (not deleted and recreated).
 4. Does the company use GitHub Actions for application CI/CD? If yes, provide the GitHub org name — an OIDC provider for GitHub will be added.
 5. Does the company use AWS SSO (IAM Identity Center)? If yes, are SSO assignments managed here or by a separate team?
@@ -33,7 +33,7 @@ Until Atlantis exists, applies for this layer use the interim local-apply except
 
 **In scope:**
 - Terraform execution roles (if not already handled by PROMPT-01 — confirm).
-- Atlantis IRSA role (`<ORG>-uat-atlantis`) — include when PROMPT-04 is unblocked; otherwise leave a stub/`TODO` and skip apply of that resource.
+- Atlantis IAM role (`<ORG>-uat-atlantis`) — **EC2 instance profile trust** for interim hosting; switch or dual-trust OIDC when Part B runs.
 - OIDC providers: EKS OIDC (for IRSA) **when the cluster exists in this account**; optionally GitHub Actions OIDC.
 - AWS Load Balancer Controller / External DNS / EBS CSI IRSA roles — defer until EKS is in this account unless roles already exist here to import.
 - Application IRSA roles for services running on EKS (import existing ones) — same deferral rule.

@@ -37,7 +37,7 @@ You are a senior SRE creating the full scaffold of the `<INFRA_REPO>` infrastruc
 
 **Out of scope:**
 - Actual Terraform resources (handled in PROMPT-10 through PROMPT-17).
-- Atlantis Kubernetes deployment (PROMPT-04).
+- Atlantis EC2 deployment (PROMPT-04 Part A); EKS migration is Part B.
 - `piaas.yml` (PROMPT-05).
 
 ---

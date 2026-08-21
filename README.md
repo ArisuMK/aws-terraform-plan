@@ -32,18 +32,18 @@ Phase 1 — Discovery
   PROMPT-00-inventory-existing-aws     [AI executes] → fills [DISCOVERY] values
 
 Phase 2 — Org context (questionnaire)
-  QUESTIONNAIRE-org-context            [YOU ANSWER] → Bitbucket/secrets as needed
-                                       (Section B / piaas deferred; EKS values wait for cluster transfer)
+  QUESTIONNAIRE-org-context            [YOU ANSWER] → Section A needed for Atlantis; B piaas deferred
+                                       (EKS values wait for cluster transfer / Part B)
 
 Phase 3 — Foundation (run in order; 02 and 03 can run in parallel after 01)
-  PROMPT-01-bootstrap-state-backend    [AI executes]  (skip EKS OIDC trust until cluster arrives)
+  PROMPT-01-bootstrap-state-backend    [AI executes]  (trust Atlantis EC2 role; skip EKS OIDC for now)
   PROMPT-02-infra-monorepo-scaffold    [AI executes]  ─┐ parallel
   PROMPT-03-module-library-repo        [AI executes]  ─┘
-  PROMPT-04-atlantis-on-bitbucket-dc   [DEFERRED]     needs EKS in this account + Bitbucket Section A
+  PROMPT-04-atlantis-on-bitbucket-dc   [AI executes]  EC2 interim (Part B = EKS later)
   PROMPT-05-piaas-quality-gates        [DEFERRED]     skip until platform team gives runner/schema answers
 
 Phase 4 — Infrastructure layers (can be parallelized within an environment; staging before production)
-  … until Atlantis exists: apply carefully via local CLI with the exec role (bootstrap exception) …
+  … after PROMPT-04: prefer Atlantis apply; local apply only as break-glass …
   PROMPT-10-identity-iam               [AI executes]
   PROMPT-11-network-vpc                [AI executes]  (needs PROMPT-10 complete)
   PROMPT-12-dns-route53-acm            [AI executes]  (needs PROMPT-11 complete)
@@ -117,7 +117,7 @@ Every `PROMPT-*.md` follows the same eleven-section structure. When feeding a pr
 
 These are repeated in every prompt, but listed here for reference:
 
-- Never run `terraform apply` directly once Atlantis is live. Until the staging EKS cluster is transferred into this account and PROMPT-04 is done, bootstrap and early layers may use a one-time local apply with the exec role (document every apply in git/PRs).
+- Never run `terraform apply` directly once Atlantis is live (EC2 or EKS). Bootstrap and the first Atlantis IAM/host apply may use a one-time local apply with the exec role; afterward use PR comments. Break-glass local apply only if Atlantis is down (see day2-runbook).
 - Never run `terraform import` CLI. Use declarative `import {}` blocks only.
 - Never hardcode account IDs, CIDRs, or secrets in `.tf` files. They go in `locals.tf` (from data sources) or the secrets tool.
 - Never commit files ending in `.secret.tfvars` or `*.auto.tfvars`.

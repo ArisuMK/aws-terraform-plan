@@ -221,25 +221,34 @@ The `use_lockfile = true` feature is stable in 1.11. S3 native locking format ma
 
 ---
 
-## 8. Atlantis restart or pod recovery
+## 8. Atlantis restart or host recovery
 
-If the Atlantis pod crashes or is deleted:
+**EC2 interim (current):**
 
 ```bash
-# Check pod status
+# Find the instance
+aws ec2 describe-instances --filters "Name=tag:Name,Values=<org>-uat-atlantis" \
+  --query "Reservations[].Instances[].InstanceId" --output text
+
+# SSM shell
+aws ssm start-session --target <instance-id>
+
+# On the host: check container/service and logs
+sudo systemctl status atlantis   # or: docker ps / docker logs atlantis
+sudo journalctl -u atlantis -n 100
+```
+
+If the host is unhealthy: reboot via console/API, or replace the instance from Terraform and re-attach to the ALB target group. Plans in flight are lost — comment `atlantis plan` on affected PRs.
+
+**EKS (after Part B migration):**
+
+```bash
 kubectl get pods -n <ATLANTIS_NAMESPACE>
-
-# Helm rolls back automatically with liveness/readiness probes.
-# If the deployment is stuck:
 kubectl rollout restart deployment -n <ATLANTIS_NAMESPACE> <ATLANTIS_RELEASE>
-
-# Check logs after restart
 kubectl logs -n <ATLANTIS_NAMESPACE> -l app.kubernetes.io/name=atlantis --tail=100
 ```
 
-Any Atlantis plans that were in progress when the pod crashed are lost. Comment `atlantis plan` in the affected PRs to re-trigger.
-
-Any applies that were in progress when the pod crashed: check the Atlantis log for the last successful resource. Check the AWS console for the resources. Follow the "failed apply" recovery steps above.
+Any applies that were in progress when Atlantis died: check logs for the last successful resource, check AWS, follow the "failed apply" recovery steps above.
 
 ---
 
@@ -271,7 +280,7 @@ Run these checks at the beginning of each month:
 - [ ] Check GuardDuty findings — any HIGH or CRITICAL items unresolved?
 - [ ] Review AWS Config non-compliant resources — any new compliance violations?
 - [ ] Dependabot/Renovate: are there pending provider upgrade PRs? Review and merge.
-- [ ] Check Atlantis pod health: logs clean? Any error spikes?
+- [ ] Check Atlantis health (EC2: SSM + systemd/docker logs; EKS: pod logs). Any error spikes?
 - [ ] Review CloudTrail for any unexpected API calls with high privilege.
 - [ ] Rotate any secrets approaching their rotation deadline.
 - [ ] Check `.terraform.lock.hcl` files are up to date — run `terraform providers lock` if providers were updated.

@@ -1,10 +1,10 @@
-# PROMPT-04: Atlantis on Bitbucket Data Center
+# PROMPT-04: Atlantis on Bitbucket Data Center (EC2 interim)
 
-> **Deferred until staging EKS is in this account.** The cluster currently lives elsewhere and will be transferred later. Do not run this prompt until `<STAGING_EKS_CLUSTER>`, `<STAGING_OIDC_ARN>`, and `<STAGING_OIDC_URL>` are discoverable in `<STAGING_ACCOUNT_ID>` and `kubectl` works against that cluster. Bootstrap, scaffold, modules, and non-EKS layers proceed without Atlantis (interim local applies allowed).
+> **Hosting model:** Run Atlantis on a dedicated **EC2 instance** in the staging account for now. Staging EKS is still in another account and may take a while to transfer. When EKS lands in this account, migrate Atlantis to Helm + IRSA (Part B at the end) and decommission the EC2 host. Do not wait on EKS to get PR-driven plan/apply.
 
 ## 1. Role and objective
 
-You are a senior SRE deploying Atlantis onto the existing staging EKS cluster using Helm and IRSA (IAM Roles for Service Accounts). Atlantis will use Bitbucket Data Center webhooks to receive PR events, post plan output as PR comments, and apply Terraform changes when authorized. After this prompt is complete, the team can manage all Terraform through PR comments — no one runs `terraform apply` locally ever again.
+You are a senior SRE deploying Atlantis on an EC2 instance in the staging AWS account, wired to Bitbucket Data Center webhooks. Atlantis posts plan output as PR comments and applies Terraform when authorized. After this prompt is complete, the team manages Terraform through PR comments — no routine local `terraform apply`.
 
 ---
 
@@ -12,61 +12,64 @@ You are a senior SRE deploying Atlantis onto the existing staging EKS cluster us
 
 - [ ] PROMPT-01 is complete: the `<ORG>-uat-terraform-exec` and `<ORG>-prd-terraform-exec` IAM roles exist.
 - [ ] PROMPT-02 is complete: `atlantis.yaml` is in the infra repo.
-- [ ] `QUESTIONNAIRE-org-context.md` Sections A (Bitbucket DC) and D (identity) have been answered.
-- [ ] `fill-in-the-blanks.local.md` has: `<STAGING_EKS_CLUSTER>`, `<STAGING_OIDC_ARN>`, `<STAGING_OIDC_URL>`, `<ATLANTIS_NAMESPACE>`, `<ATLANTIS_WEBHOOK_SECRET>`, `<ATLANTIS_BB_USER>`, `<ATLANTIS_BB_TOKEN>`, `<BITBUCKET_BASE_URL>`.
-- [ ] `kubectl` is configured to access the staging EKS cluster.
-- [ ] Helm 3 is installed locally.
+- [ ] `QUESTIONNAIRE-org-context.md` Sections A (Bitbucket DC), D, and E have been answered (enough to create a bot user, token, and webhook).
+- [ ] `fill-in-the-blanks.local.md` has: `<ATLANTIS_WEBHOOK_SECRET>`, `<ATLANTIS_BB_USER>`, `<ATLANTIS_BB_TOKEN>`, `<BITBUCKET_BASE_URL>`, `<STAGING_REGION>`, `<STAGING_ACCOUNT_ID>`, `<PRODUCTION_ACCOUNT_ID>`, plus networking answers below (or the human will supply them in this session).
+- [ ] A VPC and subnet exist in staging where the instance can reach Bitbucket DC (and Bitbucket can reach Atlantis on HTTPS), **or** the human agrees to create a minimal VPC/subnet as part of this prompt.
+- [ ] Staging EKS is **not** required.
 
 ---
 
 ## 3. Required inputs
 
-1. `<STAGING_EKS_CLUSTER>` — EKS cluster name.
-2. `<STAGING_OIDC_ARN>` and `<STAGING_OIDC_URL>` — for IRSA trust.
-3. `<ATLANTIS_NAMESPACE>` — Kubernetes namespace (e.g. `atlantis`).
-4. `<ATLANTIS_BB_USER>` — Bitbucket service account username.
-5. `<ATLANTIS_BB_TOKEN>` — Bitbucket HTTP access token (stored in secrets tool, not committed).
-6. `<ATLANTIS_WEBHOOK_SECRET>` — pre-shared secret for webhook validation (stored in secrets tool).
-7. `<BITBUCKET_BASE_URL>` — e.g. `https://bitbucket.acme.com`.
-8. `<INFRA_REPO>` slug and Bitbucket project key `<BB_PROJECT>`.
-9. The staging execution role ARN from PROMPT-01 output.
-10. The production execution role ARN from PROMPT-01 output.
-11. Desired Atlantis image version (check https://github.com/runatlantis/atlantis/releases for latest stable).
+Ask the human to confirm before writing:
+
+1. `<ORG>`, `<STAGING_ACCOUNT_ID>`, `<PRODUCTION_ACCOUNT_ID>`, `<STAGING_REGION>`.
+2. `<BITBUCKET_BASE_URL>`, `<BB_PROJECT>`, `<INFRA_REPO>`, `<BITBUCKET_SSH_HOST>`.
+3. `<ATLANTIS_BB_USER>`, `<ATLANTIS_BB_TOKEN>`, `<ATLANTIS_WEBHOOK_SECRET>` (token/secret stored in secrets tool, not committed).
+4. `<STAGING_DOMAIN>` (or a provisional hostname) for `atlantis.<STAGING_DOMAIN>`.
+5. Subnet ID for the instance (private preferred) and whether exposure is via **ALB** (recommended) or instance public IP (discouraged).
+6. Allowed CIDRs / security-group sources for HTTPS to Atlantis (Bitbucket DC egress IPs, VPN, office — from questionnaire A6).
+7. Instance size (default `t3.medium` unless human says otherwise).
+8. AMI preference: Amazon Linux 2023 (default) or Ubuntu LTS.
+9. Desired Atlantis version (pin from https://github.com/runatlantis/atlantis/releases).
+10. Staging and production exec role ARNs from PROMPT-01.
 
 ---
 
 ## 4. In scope / out of scope
 
-**In scope:**
-- IRSA IAM role for the Atlantis pod (`<ORG>-uat-atlantis`).
-- Kubernetes namespace, ServiceAccount, and IRSA annotation.
-- Atlantis Helm chart values file.
-- Kubernetes Secret for Bitbucket token and webhook secret.
-- Bitbucket DC webhook configuration instructions.
-- Cross-account role chaining: Atlantis assumes `<ORG>-uat-atlantis` (via IRSA), then assumes `<ORG>-uat-terraform-exec` and `<ORG>-prd-terraform-exec`.
-- Atlantis server-side configuration for `repos.yaml` (repo allowlist, workflow overrides).
-- Instructions for verifying the webhook.
+**In scope (Part A — EC2 now):**
+- IAM role + instance profile `<ORG>-uat-atlantis` (EC2 trust) with permission to assume both exec roles.
+- Trust updates on `<ORG>-uat-terraform-exec` and `<ORG>-prd-terraform-exec` so they accept that Atlantis role.
+- EC2 instance, security group, EBS root volume, optional data volume for Atlantis home.
+- User-data / cloud-init: Docker (or binary), Atlantis systemd unit, SSM agent.
+- ALB + target group + HTTPS listener **or** clear instructions if the human uses an existing reverse proxy.
+- Bitbucket DC webhook configuration.
+- SSH key for cloning `<MODULES_REPO>` (on the instance, not in git).
+- Server-side `repos.yaml` allowlist / apply requirements.
+- Runbook notes for migrate-to-EKS later (Part B).
 
 **Out of scope:**
-- ALB/Ingress for Atlantis (the human must expose Atlantis via the existing ingress controller or a LoadBalancer service — ask which one).
-- TLS certificate (covered in 30-dns layer).
-- Terraform code for the Atlantis IAM role — this is added to `live/staging/10-identity/` in PROMPT-10. Provide the HCL snippet to paste there.
+- EKS / Helm / IRSA deployment (Part B only — after cluster transfer).
+- Full VPC build (prefer existing subnets; if none exist, ask human before creating a minimal network).
+- Production EC2 Atlantis (one Atlantis in staging manages both accounts via assume-role).
 
 ---
 
 ## 5. Reference material
 
-- `00-standards/decisions.md` ADR-002 (Atlantis), ADR-003 (repo split).
-- `QUESTIONNAIRE-org-context.md` answers for Sections A, D, E.
-- Atlantis docs: https://www.runatlantis.io/docs/configuring-bitbucket-server.html
+- `00-standards/decisions.md` ADR-002 (Atlantis — EC2 interim, EKS target).
+- `QUESTIONNAIRE-org-context.md` Sections A, D, E, F.
+- Atlantis Bitbucket Server docs: https://www.runatlantis.io/docs/configuring-bitbucket-server.html
+- Atlantis deployment (generic): https://www.runatlantis.io/docs/deployment.html
 
 ---
 
 ## 6. Step-by-step procedure
 
-### Step 1: IRSA IAM role (Terraform HCL snippet)
+### Step 1: Atlantis IAM role (instance profile) — HCL for `10-identity`
 
-This snippet goes into `live/staging/10-identity/atlantis.tf` and is applied via Atlantis itself (or manually during setup). Provide it to the human now.
+Write `live/staging/10-identity/atlantis.tf` (apply once via local bootstrap/exec role if Atlantis is not up yet; thereafter via Atlantis itself).
 
 ```hcl
 # live/staging/10-identity/atlantis.tf
@@ -74,20 +77,10 @@ This snippet goes into `live/staging/10-identity/atlantis.tf` and is applied via
 data "aws_iam_policy_document" "atlantis_trust" {
   statement {
     effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    actions = ["sts:AssumeRole"]
     principals {
-      type        = "Federated"
-      identifiers = ["<STAGING_OIDC_ARN>"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "<STAGING_OIDC_URL>:sub"
-      values   = ["system:serviceaccount:<ATLANTIS_NAMESPACE>:atlantis"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "<STAGING_OIDC_URL>:aud"
-      values   = ["sts.amazonaws.com"]
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
     }
   }
 }
@@ -99,14 +92,19 @@ resource "aws_iam_role" "atlantis" {
   tags = {
     Name    = "<ORG>-uat-atlantis"
     Service = "atlantis"
+    Hosting = "ec2-interim"
   }
 }
 
-# Allow Atlantis to assume the exec roles in each account
+resource "aws_iam_instance_profile" "atlantis" {
+  name = "<ORG>-uat-atlantis"
+  role = aws_iam_role.atlantis.name
+}
+
 data "aws_iam_policy_document" "atlantis_assume_exec" {
   statement {
-    effect    = "Allow"
-    actions   = ["sts:AssumeRole"]
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
     resources = [
       "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-terraform-exec",
       "arn:aws:iam::<PRODUCTION_ACCOUNT_ID>:role/<ORG>-prd-terraform-exec",
@@ -119,178 +117,120 @@ resource "aws_iam_role_policy" "atlantis_assume_exec" {
   role   = aws_iam_role.atlantis.id
   policy = data.aws_iam_policy_document.atlantis_assume_exec.json
 }
+
+# Optional but recommended: SSM Session Manager (no inbound SSH)
+resource "aws_iam_role_policy_attachment" "atlantis_ssm" {
+  role       = aws_iam_role.atlantis.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
 ```
 
-**Important:** The `<ORG>-uat-terraform-exec` and `<ORG>-prd-terraform-exec` roles must trust the Atlantis role in their trust policies (set up in PROMPT-01).
+**Trust on exec roles (PROMPT-01 / bootstrap update):** both exec roles must allow:
 
-### Step 2: Kubernetes namespace and ServiceAccount
-
-```bash
-kubectl create namespace <ATLANTIS_NAMESPACE> --dry-run=client -o yaml | kubectl apply -f -
+```hcl
+principals {
+  type        = "AWS"
+  identifiers = ["arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-atlantis"]
+}
+actions = ["sts:AssumeRole"]
 ```
 
-ServiceAccount manifest (do not apply manually — let Helm manage it):
+Do **not** require EKS OIDC for this interim path. When migrating to EKS later, replace EC2 trust with IRSA (or support both briefly during cutover).
+
+### Step 2: Security group
+
+- Inbound HTTPS `443` from Bitbucket DC (and/or ALB SG only if using ALB).
+- Inbound from ALB security group to instance port `4141` if ALB terminates TLS.
+- Outbound: HTTPS to Bitbucket, AWS APIs, and whatever is needed to clone modules / download providers.
+- Prefer **no** inbound SSH (`22`). Use SSM.
+
+Ask the human for source CIDRs if A6 was answered; otherwise default to “ALB-only + VPN CIDR if provided”.
+
+### Step 3: EC2 instance
+
+Create Terraform under `live/staging/50-compute/` **or** a small dedicated `live/staging/05-atlantis/` root if the human wants Atlantis isolated before the compute layer exists. Prefer `05-atlantis` so Atlantis is not blocked on the full compute layer.
+
+Minimum instance settings:
+
+| Setting | Value |
+|---|---|
+| Name | `<ORG>-uat-atlantis` |
+| Type | `t3.medium` (or human override) |
+| AMI | Amazon Linux 2023 |
+| IAM instance profile | `<ORG>-uat-atlantis` |
+| Subnet | private (preferred) |
+| Root volume | ≥ 30 GB gp3 |
+| Metadata | IMDSv2 required |
+| User data | install Docker + run Atlantis (Step 4) |
+
+Pin AMI via SSM public parameter or a data source — do not hardcode a stale AMI ID without asking.
+
+### Step 4: Install and run Atlantis (user-data / systemd)
+
+Provide cloud-init that:
+
+1. Installs Docker (or downloads the Atlantis binary — Docker image `ghcr.io/runatlantis/atlantis:v<ATLANTIS_VERSION>` is fine).
+2. Creates `/etc/atlantis/` with `repos.yaml`.
+3. Pulls Bitbucket token + webhook secret from the secrets tool or SSM Parameter Store (never bake into the AMI).
+4. Starts a systemd unit or `docker run` with restart policy.
+
+Example `repos.yaml`:
 
 ```yaml
-# Shown for reference; Helm chart creates this
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: atlantis
-  namespace: <ATLANTIS_NAMESPACE>
-  annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-atlantis
+repos:
+  - id: "<BITBUCKET_BASE_URL>/<BB_PROJECT>/<INFRA_REPO>"
+    apply_requirements: [approved, mergeable]
+    allowed_overrides: [apply_requirements]
+    allow_custom_workflows: false
 ```
 
-### Step 3: Kubernetes secrets
+Example container flags / env (adapt to docker run or compose):
 
-Store sensitive values as Kubernetes secrets (populated from the secrets tool, not hardcoded):
-
-```bash
-kubectl create secret generic atlantis-secrets \
-  --namespace <ATLANTIS_NAMESPACE> \
-  --from-literal=ATLANTIS_BITBUCKET_TOKEN="<ATLANTIS_BB_TOKEN>" \
-  --from-literal=ATLANTIS_BITBUCKET_WEBHOOK_SECRET="<ATLANTIS_WEBHOOK_SECRET>" \
-  --dry-run=client -o yaml | kubectl apply -f -
+```text
+--atlantis-url=https://atlantis.<STAGING_DOMAIN>
+--bitbucket-user=<ATLANTIS_BB_USER>
+--bitbucket-token=<from secret>
+--bitbucket-base-url=<BITBUCKET_BASE_URL>
+--bitbucket-webhook-secret=<from secret>
+--repo-allowlist=<BITBUCKET_BASE_URL>/<BB_PROJECT>/<INFRA_REPO>
+--repo-config=/etc/atlantis/repos.yaml
+--default-tf-version=1.11.4
 ```
 
-In a real deployment, use an external secrets operator (ESO) or sealed-secrets to manage this secret — do not create it manually. Provide the human with a placeholder and ask them to use their secrets tool integration.
+Also set:
 
-### Step 4: Helm values file
-
-Create `live/staging/10-identity/atlantis-helm-values.yaml` (not Terraform — this is a Helm values file for direct `helm upgrade` or an ArgoCD/Atlantis-managed app):
-
-```yaml
-# atlantis-helm-values.yaml
-# Atlantis Helm chart: https://github.com/runatlantis/helm-charts
-
-replicaCount: 1
-
-image:
-  repository: ghcr.io/runatlantis/atlantis
-  tag: v<ATLANTIS_VERSION>   # pin exact version
-  pullPolicy: IfNotPresent
-
-serviceAccount:
-  create: true
-  name: atlantis
-  annotations:
-    eks.amazonaws.com/role-arn: "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-atlantis"
-
-service:
-  type: ClusterIP    # expose via Ingress below, not LoadBalancer
-  port: 4141
-
-ingress:
-  enabled: true
-  ingressClassName: <INGRESS_CLASS>   # e.g. alb, nginx — ask human
-  annotations:
-    # ALB ingress annotations if using AWS ALB controller:
-    # kubernetes.io/ingress.class: alb
-    # alb.ingress.kubernetes.io/scheme: internet-facing
-    # alb.ingress.kubernetes.io/target-type: ip
-  hosts:
-    - host: atlantis.<STAGING_DOMAIN>
-      paths:
-        - path: /
-          pathType: Prefix
-
-atlantisUrl: "https://atlantis.<STAGING_DOMAIN>"
-
-orgAllowlist: "<BITBUCKET_BASE_URL>/<BB_PROJECT>/<INFRA_REPO>"
-
-bitbucketServer:
-  user: "<ATLANTIS_BB_USER>"
-  baseURL: "<BITBUCKET_BASE_URL>"
-
-# All secrets from the Kubernetes secret created in Step 3
-environmentSecrets:
-  - name: ATLANTIS_BITBUCKET_TOKEN
-    secretKeyRef:
-      name: atlantis-secrets
-      key: ATLANTIS_BITBUCKET_TOKEN
-  - name: ATLANTIS_BITBUCKET_WEBHOOK_SECRET
-    secretKeyRef:
-      name: atlantis-secrets
-      key: ATLANTIS_BITBUCKET_WEBHOOK_SECRET
-
-environment:
-  - name: ATLANTIS_DEFAULT_TF_VERSION
-    value: "1.11.4"
-  - name: AWS_REGION
-    value: "<STAGING_REGION>"
-
-# Mount SSH key for module downloads from Bitbucket DC
-extraVolumes:
-  - name: atlantis-ssh
-    secret:
-      secretName: atlantis-ssh-key
-extraVolumeMounts:
-  - name: atlantis-ssh
-    mountPath: /home/atlantis/.ssh
-    readOnly: true
-
-resources:
-  requests:
-    memory: "512Mi"
-    cpu: "200m"
-  limits:
-    memory: "1Gi"
-    cpu: "500m"
-
-storage:
-  enabled: true
-  storageClassName: gp3   # adjust to available StorageClass
-  size: 5Gi
-
-repoConfig: |
-  repos:
-    - id: "<BITBUCKET_BASE_URL>/<BB_PROJECT>/<INFRA_REPO>"
-      apply_requirements: [approved, mergeable]
-      allowed_overrides: [apply_requirements]
-      allow_custom_workflows: false
+```text
+AWS_REGION=<STAGING_REGION>
+# Optional: default profile/role chaining is via instance profile → AssumeRole in provider blocks
 ```
+
+Provider blocks in live roots already use `assume_role` to the exec roles — the instance profile only needs permission to call `sts:AssumeRole` on those ARNs (Step 1).
 
 ### Step 5: SSH key for module downloads
 
-Atlantis needs to clone the module library repo via SSH during `terraform init`. Create a dedicated SSH key pair for the Atlantis service account:
+On the instance (via SSM), generate or install an ed25519 key used only by Atlantis:
 
 ```bash
-ssh-keygen -t ed25519 -C "atlantis@<ORG>" -f atlantis_bitbucket_ed25519 -N ""
+ssh-keygen -t ed25519 -C "atlantis@<ORG>" -f /home/atlantis/.ssh/id_ed25519 -N ""
 ```
 
-1. Add the **public key** to the Bitbucket service account's SSH keys.
-2. Create a Kubernetes secret from the **private key**:
+1. Add the **public** key to the Bitbucket service account SSH keys.
+2. Write `known_hosts` for `<BITBUCKET_SSH_HOST>:7999`.
+3. Never commit the private key.
 
-```bash
-kubectl create secret generic atlantis-ssh-key \
-  --namespace <ATLANTIS_NAMESPACE> \
-  --from-file=id_ed25519=./atlantis_bitbucket_ed25519 \
-  --from-literal=known_hosts="$(ssh-keyscan -p 7999 <BITBUCKET_SSH_HOST> 2>/dev/null)" \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
+### Step 6: Expose HTTPS endpoint
 
-3. Delete the local private key file: `rm atlantis_bitbucket_ed25519`.
+**Preferred:** ALB in front of the instance, ACM cert for `atlantis.<STAGING_DOMAIN>`, target group → instance:4141, health check on `/healthz` (Atlantis health endpoint).
 
-### Step 6: Install Atlantis via Helm
+**Fallback:** existing reverse proxy the human names. Document the final URL.
 
-```bash
-helm repo add runatlantis https://runatlantis.github.io/helm-charts
-helm repo update
+Bitbucket webhook URL:
 
-helm upgrade --install <ATLANTIS_RELEASE> runatlantis/atlantis \
-  --namespace <ATLANTIS_NAMESPACE> \
-  --create-namespace \
-  --version <ATLANTIS_CHART_VERSION> \
-  --values live/staging/10-identity/atlantis-helm-values.yaml \
-  --wait
-```
+`https://atlantis.<STAGING_DOMAIN>/events`
 
-Check latest chart version at https://github.com/runatlantis/helm-charts/releases.
+### Step 7: Bitbucket DC webhook
 
-### Step 7: Configure Bitbucket DC webhook
-
-In Bitbucket DC, navigate to: Repository Settings → Webhooks → Add webhook.
+Repository Settings → Webhooks → Add webhook:
 
 | Field | Value |
 |---|---|
@@ -299,83 +239,106 @@ In Bitbucket DC, navigate to: Repository Settings → Webhooks → Add webhook.
 | Events | PR Opened, PR Modified, PR Merged, PR Comment Created |
 | Active | Yes |
 
-Bitbucket Data Center supports webhook secrets (HMAC-SHA256 signature on the `X-Hub-Signature` header) — confirm this is verified by the Atlantis `--bitbucket-webhook-secret` flag (set via the `ATLANTIS_BITBUCKET_WEBHOOK_SECRET` environment variable).
+Confirm HMAC webhook secret verification is enabled on the Atlantis side.
 
-### Step 8: Verify the setup
+### Step 8: Verify
 
 ```bash
-# Confirm the pod is running
-kubectl get pods -n <ATLANTIS_NAMESPACE>
+# Via SSM Session Manager on the instance
+aws sts get-caller-identity
+# Expect: arn:...:assumed-role/<ORG>-uat-atlantis/...
 
-# Check Atlantis logs
-kubectl logs -n <ATLANTIS_NAMESPACE> -l app.kubernetes.io/name=atlantis --tail=50
-
-# Confirm IRSA is working (Atlantis pod can call AWS)
-kubectl exec -n <ATLANTIS_NAMESPACE> \
-  $(kubectl get pod -n <ATLANTIS_NAMESPACE> -l app.kubernetes.io/name=atlantis -o name) \
-  -- aws sts get-caller-identity
+curl -sS https://atlantis.<STAGING_DOMAIN>/healthz
 ```
 
-The caller identity should show the `<ORG>-uat-atlantis` role.
+Then open a trivial PR in the infra repo and confirm Atlantis posts a plan comment within ~60 seconds.
 
-### Step 9: Test with a real PR
+### Step 9: Stop local applies
 
-1. Create a branch in the infra repo.
-2. Add a trivial comment to `live/staging/10-identity/main.tf`.
-3. Open a PR in Bitbucket DC.
-4. Confirm Atlantis posts a plan comment within ~30 seconds.
-5. If no comment: check Atlantis logs for webhook delivery errors.
+Once the test PR plan/apply works, update team process: **all applies go through Atlantis**. Keep a break-glass local apply path only for Atlantis-down emergencies (see day2-runbook).
 
 ---
 
 ## 7. Expected file tree after completion
 
 ```
-live/staging/10-identity/
-  atlantis.tf                       (IAM role snippet)
-  atlantis-helm-values.yaml         (Helm values, committed)
+live/staging/05-atlantis/          # preferred isolated root (or under 50-compute if human prefers)
+  backend.tf
+  providers.tf
+  versions.tf
+  locals.tf
+  main.tf                          # instance, SG, ALB pieces as agreed
+  outputs.tf
 
-(Kubernetes resources managed by Helm — not committed as YAML manifests)
+live/staging/10-identity/
+  atlantis.tf                      # IAM role + instance profile
+
+docs/ or live/staging/05-atlantis/
+  atlantis-repos.yaml              # optional committed copy of server repo config
+  README-atlantis-ec2.md           # hostname, SSM how-to, migrate-to-EKS notes
 ```
+
+Also update `atlantis.yaml` projects if a new `05-atlantis` root was added.
 
 ---
 
 ## 8. Code contracts
 
-The Atlantis pod must:
-- Use IRSA (not static AWS credentials).
-- Assume `<ORG>-uat-atlantis`, which then assumes `<ORG>-uat-terraform-exec` or `<ORG>-prd-terraform-exec` per project.
-- Pin an exact Atlantis version tag.
-- Validate webhook signatures via `ATLANTIS_BITBUCKET_WEBHOOK_SECRET`.
+- No static `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` on the host.
+- Auth = EC2 instance profile `<ORG>-uat-atlantis` → assume exec roles.
+- Pin exact Atlantis version.
+- Webhook secret required; HTTPS required for the public/Bitbucket-facing URL.
+- IMDSv2 required on the instance.
+- Tag resources with `Hosting = ec2-interim` so the EKS migration can find them.
 
 ---
 
 ## 9. Acceptance criteria
 
-- [ ] `kubectl get pods -n <ATLANTIS_NAMESPACE>` shows `Running` and `Ready`.
-- [ ] `aws sts get-caller-identity` from inside the Atlantis pod returns the `<ORG>-uat-atlantis` role.
-- [ ] Opening a test PR triggers a plan comment from Atlantis within 60 seconds.
-- [ ] `atlantis plan` typed as a PR comment re-plans successfully.
-- [ ] `atlantis apply` typed as a PR comment (by an authorized user on an approved PR) applies successfully.
-- [ ] Atlantis logs show no authentication or webhook signature errors.
+- [ ] Instance is running with instance profile `<ORG>-uat-atlantis`.
+- [ ] `aws sts get-caller-identity` on the host shows that role.
+- [ ] Host can `sts:AssumeRole` into both exec roles.
+- [ ] `https://atlantis.<STAGING_DOMAIN>/healthz` returns healthy.
+- [ ] Test PR gets an Atlantis plan comment within 60 seconds.
+- [ ] `atlantis apply` on an approved PR succeeds for a trivial change.
+- [ ] Bitbucket token and webhook secret are not in git.
+- [ ] Short migrate-to-EKS note exists (Part B).
 
 ---
 
 ## 10. Guardrails
 
-- Never commit the Bitbucket token or webhook secret to the repo.
-- Never use `--disable-autoplan` in Atlantis — autoplan is the primary safety net.
-- Never grant Atlantis a direct admin role — it must chain through the exec roles.
-- Never expose Atlantis to the public internet without the webhook secret and HTTPS.
-- Do not allow the Atlantis service account to assume arbitrary roles — only the two exec roles.
+- Never commit Bitbucket token, webhook secret, or SSH private key.
+- Never attach `AdministratorAccess` to `<ORG>-uat-atlantis` — only `sts:AssumeRole` to the two exec roles (+ SSM).
+- Never expose port 4141 to `0.0.0.0/0`; terminate TLS at ALB / controlled CIDRs.
+- Never disable autoplan.
+- Do not block this prompt on EKS transfer.
+- Do not treat the EC2 host as permanent without a written EKS migration note.
 
 ---
 
 ## 11. Handoff note
 
 When complete, report:
-1. Atlantis pod name and image version.
-2. URL at which Atlantis is reachable.
-3. Role chain confirmed: Atlantis pod → `<ORG>-uat-atlantis` → `<ORG>-uat-terraform-exec`.
-4. Result of the test PR (plan comment received yes/no).
-5. Any deviations (e.g. ingress class used, chart version pinned).
+
+1. Instance ID, type, AMI, Atlantis version.
+2. Public URL (`https://atlantis.<STAGING_DOMAIN>`).
+3. Role chain: EC2 instance profile `<ORG>-uat-atlantis` → exec roles.
+4. Test PR result (plan comment yes/no; apply yes/no).
+5. How operators access the host (SSM preferred).
+6. Reminder: Part B when EKS arrives.
+
+---
+
+## Part B — Later: migrate Atlantis to EKS (after cluster transfer)
+
+Do **not** execute until `<STAGING_EKS_CLUSTER>`, OIDC ARN/URL exist in `<STAGING_ACCOUNT_ID>`.
+
+1. Create IRSA trust on `<ORG>-uat-atlantis` (or a new role) for `system:serviceaccount:<ATLANTIS_NAMESPACE>:atlantis`.
+2. Deploy Atlantis via Helm (chart `runatlantis/atlantis`) with the same Bitbucket settings, `repos.yaml`, and webhook URL (DNS cutover).
+3. Point Bitbucket webhook / DNS at the EKS ingress.
+4. Confirm plans still work.
+5. Stop the EC2 instance, remove ALB target, delete interim compute — keep IAM role if reused for IRSA, or replace trust from `ec2.amazonaws.com` to OIDC.
+6. Remove `Hosting = ec2-interim` resources from state after destroy.
+
+Keep webhook secret and bot user unchanged across the migration if possible.

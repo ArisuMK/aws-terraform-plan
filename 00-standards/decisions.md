@@ -72,11 +72,13 @@ We evaluated:
 
 ### Decision
 
-Deploy Atlantis on the staging EKS cluster with IRSA once that cluster is available **in the staging account managed by this pack**. It assumes `terraform-exec` IAM roles in each target account using the EKS pod's OIDC identity.
+**Target end state:** Atlantis on staging EKS with IRSA, assuming `terraform-exec` roles in each account.
 
-**Current constraint:** the staging EKS cluster may still live in another AWS account and will be transferred later. Until then, PROMPT-04 is deferred; bootstrap and non-EKS layers proceed without Atlantis (local apply with the exec role is allowed as an interim exception).
+**Interim (accepted now):** Atlantis on a dedicated **EC2 instance** in the staging account (instance profile `<org>-uat-atlantis` → assume exec roles). Use this while staging EKS remains in another account or is otherwise unavailable. Migrate to EKS (PROMPT-04 Part B) after transfer; do not block PR-driven Terraform on EKS.
 
-- Bitbucket DC VCS config: `--vcs bitbucketserver`, `--bitbucket-base-url`, `--bitbucket-webhook-secret`.
+Shared Atlantis behaviour (EC2 or EKS):
+
+- Bitbucket DC VCS config: `--vcs` / Bitbucket Server settings, base URL, webhook secret.
 - Atlantis config: `atlantis.yaml` at repo root, one project per `live/<env>/<layer>` directory.
 - Apply command: `atlantis apply` typed as a PR comment by an authorized user.
 - Auto-plan: enabled on `**.tf`, `**.tfvars`, `**/.terraform.lock.hcl` file changes.
@@ -85,8 +87,9 @@ Deploy Atlantis on the staging EKS cluster with IRSA once that cluster is availa
 ### Consequences
 
 - Atlantis must have network access to Bitbucket DC (HTTPS webhooks inbound to Atlantis, Atlantis calls Bitbucket API).
-- EKS cluster and IRSA in **this** staging account are required before Atlantis can operate — do not block bootstrap/modules/layers on Atlantis while the cluster is still elsewhere.
-- After cluster transfer: add OIDC trust to exec roles, run PROMPT-04, then stop local applies.
+- PROMPT-04 is **unblocked** without EKS: deploy EC2 + ALB (or approved reverse proxy), wire IAM trust to exec roles, stop routine local applies once the test PR works.
+- Tag interim hosts with `Hosting = ec2-interim` and keep a migrate-to-EKS note.
+- After EKS transfer: switch to Helm + IRSA, decommission the EC2 host.
 - Team members approve PRs in Bitbucket; they type `atlantis apply` in the PR comment, not via AWS console or CLI.
 
 ---

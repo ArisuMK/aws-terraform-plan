@@ -79,11 +79,24 @@ Save a copy of this file with real values as `fill-in-the-blanks.local.md` (giti
 
 ---
 
+## Atlantis hosting (EC2 interim)
+
+Atlantis runs on **EC2 now** (PROMPT-04). EKS values below stay deferred until cluster transfer + Part B migration.
+
+| Key | Placeholder | Your value | Notes |
+|---|---|---|---|
+| Atlantis public URL hostname | `atlantis.<STAGING_DOMAIN>` | | e.g. `atlantis.uat.acme.com` |
+| Atlantis EC2 subnet ID | `<ATLANTIS_SUBNET_ID>` | | Private subnet preferred |
+| Atlantis expose via | `<ATLANTIS_EXPOSE>` | | `alb` (recommended) or `existing-proxy` |
+| HTTPS allow sources (CIDRs or “ALB only”) | `<ATLANTIS_INGRESS_CIDRS>` | | Bitbucket egress / VPN; from questionnaire A6 |
+| Instance type | `<ATLANTIS_INSTANCE_TYPE>` | | Default `t3.medium` |
+| Atlantis version pin | `<ATLANTIS_VERSION>` | | e.g. `0.34.0` from GitHub releases |
+
+---
+
 ## EKS (staging) — DEFERRED (cluster not in this account yet)
 
-**Skip this section for now.** The staging EKS cluster lives in **another AWS account** and will be transferred later. Until it exists in `<STAGING_ACCOUNT_ID>`, you cannot discover OIDC/IRSA values and **cannot run PROMPT-04 (Atlantis)**.
-
-Continue with bootstrap, repo scaffold, modules, and non-EKS layers. After transfer, fill these from inventory in the destination account, then run PROMPT-04.
+**Skip for Atlantis.** Staging EKS lives in another account until transfer. Atlantis does **not** wait on these fields — use the EC2 section above and PROMPT-04 Part A. Fill EKS fields after transfer, then run PROMPT-04 Part B (migrate off EC2).
 
 | Key | Placeholder | Your value | Status |
 |---|---|---|---|
@@ -91,8 +104,8 @@ Continue with bootstrap, repo scaffold, modules, and non-EKS layers. After trans
 | Staging EKS OIDC provider ARN | `<STAGING_OIDC_ARN>` | | [DEFERRED] |
 | Staging EKS OIDC provider URL (no https://) | `<STAGING_OIDC_URL>` | | [DEFERRED] |
 | Kubernetes version | `<K8S_VERSION>` | | [DEFERRED] |
-| Atlantis namespace on EKS | `<ATLANTIS_NAMESPACE>` | | [DEFERRED] e.g. `atlantis` |
-| Atlantis Helm release name | `<ATLANTIS_RELEASE>` | | [DEFERRED] e.g. `atlantis` |
+| Atlantis namespace on EKS | `<ATLANTIS_NAMESPACE>` | | [DEFERRED] for Part B only |
+| Atlantis Helm release name | `<ATLANTIS_RELEASE>` | | [DEFERRED] for Part B only |
 | Source account ID where cluster lives today (optional note) | — | | For your own tracking only |
 
 ---
@@ -133,7 +146,7 @@ Same rule: leave blank until the cluster is reachable in the production account 
 | HashiCorp Vault | `hashicorp/vault` | Dedicated Vault provider. |
 | Something else / unknown | Leave blank for now | PROMPT-16 will ask again; do not guess. |
 
-You only need `<SECRETS_TOOL>` before secrets-heavy layers (PROMPT-13 / PROMPT-16). Provider fields can wait. Atlantis is deferred until EKS is in this account.
+You only need `<SECRETS_TOOL>` before secrets-heavy layers (PROMPT-13 / PROMPT-16). Provider fields can wait. Atlantis on EC2 can proceed without EKS.
 
 ---
 
@@ -173,7 +186,7 @@ Created by `00-bootstrap`. Names are pre-decided here.
 |---|---|---|---|
 | Staging | `<ORG>-uat-terraform-exec` | `<STAGING_ACCOUNT_ID>` | |
 | Production | `<ORG>-prd-terraform-exec` | `<PRODUCTION_ACCOUNT_ID>` | |
-| Atlantis pod (staging EKS) | `<ORG>-uat-atlantis` | `<STAGING_ACCOUNT_ID>` | [DEFERRED] after EKS transfer + PROMPT-04 |
+| Atlantis (EC2 interim / later EKS) | `<ORG>-uat-atlantis` | `<STAGING_ACCOUNT_ID>` | Instance profile now; IRSA after EKS migration |
 
 ---
 

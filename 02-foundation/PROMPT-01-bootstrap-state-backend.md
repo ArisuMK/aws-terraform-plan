@@ -29,7 +29,7 @@ Ask the human to confirm:
 2. `<STAGING_ACCOUNT_ID>` and `<STAGING_REGION>`.
 3. `<PRODUCTION_ACCOUNT_ID>` and `<PRODUCTION_REGION>`.
 4. Any existing IAM roles that must NOT be modified or deleted (from the inventory, Section D of the questionnaire).
-5. Staging EKS OIDC for Atlantis trust: **usually "not yet"**. If the staging EKS cluster is still in another account (to be transferred later), skip OIDC provider creation and Atlantis trust statements now. Revisit after transfer when `<STAGING_OIDC_URL>` and `<STAGING_OIDC_ARN>` exist in this account. Only if the cluster is already in `<STAGING_ACCOUNT_ID>` should bootstrap wire IRSA trust.
+5. Atlantis trust for exec roles: wire trust to IAM role `<ORG>-uat-atlantis` (EC2 instance profile — PROMPT-04 Part A). Skip EKS OIDC trust until the cluster is in this account (Part B). If PROMPT-04 has not run yet, bootstrap may temporarily trust only the human/admin principal; add the Atlantis role ARN as soon as it exists.
 
 ---
 
@@ -39,14 +39,14 @@ Ask the human to confirm:
 - S3 state bucket per account with versioning, SSE-KMS, public access block, TLS-only bucket policy.
 - KMS key and alias for state bucket encryption.
 - IAM execution role (`<ORG>-<env>-terraform-exec`) per account, with an inline policy granting all Terraform operations.
-- IAM trust policy on the execution role: human/bootstrap principal now; **add** Atlantis pod OIDC trust later when staging EKS is in this account (PROMPT-04).
-- OIDC provider for the staging EKS cluster — **only if** the cluster already exists in this account; otherwise defer.
+- IAM trust policy on the execution role: human/bootstrap principal plus `<ORG>-uat-atlantis` (EC2 interim). Add EKS OIDC trust only after cluster transfer (PROMPT-04 Part B).
+- OIDC provider for the staging EKS cluster — **defer** until the cluster exists in this account.
 - Instructions for the one-time manual bootstrap procedure.
 
 **Out of scope:**
 - VPC, subnets, security groups.
 - Any application resources.
-- The Atlantis Kubernetes deployment itself (covered in PROMPT-04).
+- The Atlantis EC2 host / later EKS deployment itself (covered in PROMPT-04).
 
 ---
 
@@ -166,9 +166,8 @@ locals {
   region     = "<STAGING_REGION>"
   account_id = data.aws_caller_identity.current.account_id
 
-  # Atlantis OIDC identity for trust policy
-  # Format: system:serviceaccount:<namespace>:<service-account-name>
-  atlantis_sa_subject = "system:serviceaccount:<ATLANTIS_NAMESPACE>:atlantis"
+  # Atlantis EC2 instance role (PROMPT-04 Part A). Add EKS SA subject only for Part B.
+  atlantis_role_arn = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${local.org}-${local.env}-atlantis"
 
   default_tags = {
     Organization = local.org
@@ -283,25 +282,20 @@ resource "aws_s3_bucket_policy" "tfstate_tls_only" {
 # live/staging/00-bootstrap/iam.tf
 
 data "aws_iam_policy_document" "terraform_exec_trust" {
-  # Trust Atlantis pod via OIDC (EKS IRSA)
+  # Trust Atlantis EC2 instance role (interim hosting — PROMPT-04 Part A)
   statement {
     effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    actions = ["sts:AssumeRole"]
     principals {
-      type        = "Federated"
-      identifiers = ["<STAGING_OIDC_ARN>"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "<STAGING_OIDC_URL>:sub"
-      values   = [local.atlantis_sa_subject]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "<STAGING_OIDC_URL>:aud"
-      values   = ["sts.amazonaws.com"]
+      type        = "AWS"
+      identifiers = [local.atlantis_role_arn]
     }
   }
+
+  # Optional during bootstrap: also trust the human/admin role used for the first apply.
+  # Ask the human for that role ARN and add a second statement if needed.
+
+  # DEFER until EKS transfer (PROMPT-04 Part B): sts:AssumeRoleWithWebIdentity + OIDC conditions
 }
 
 resource "aws_iam_role" "terraform_exec" {
@@ -324,59 +318,38 @@ resource "aws_iam_role_policy_attachment" "terraform_exec_admin" {
 
 **Note to the executing AI:** Replace `arn:aws:partition` with the correct partition for the account (`aws`, `aws-cn`, or `aws-us-gov`). For standard commercial AWS it is `arn:aws:iam::aws:policy/AdministratorAccess`.
 
-For production, the trust policy must reference the **staging** OIDC ARN and URL — Atlantis runs in staging but assumes the production exec role cross-account.
+For production, trust the **same staging** Atlantis role ARN — Atlantis runs in staging but assumes the production exec role cross-account.
 
 ```hcl
 # live/production/00-bootstrap/iam.tf (trust policy portion)
 data "aws_iam_policy_document" "terraform_exec_trust" {
   statement {
     effect  = "Allow"
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    actions = ["sts:AssumeRole"]
     principals {
-      type        = "Federated"
-      identifiers = ["<STAGING_OIDC_ARN>"]   # staging OIDC — Atlantis lives in staging
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "<STAGING_OIDC_URL>:sub"
-      values   = [local.atlantis_sa_subject]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "<STAGING_OIDC_URL>:aud"
-      values   = ["sts.amazonaws.com"]
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-atlantis"]
     }
   }
 }
 ```
 
-### Step 10: Write `oidc.tf` (only if OIDC provider not already in inventory)
+### Step 10: Write `oidc.tf` — DEFER until EKS is in this account
+
+Skip this file for the EC2 Atlantis path. When the staging cluster is transferred, add OIDC (or import the existing provider) and extend exec-role trust with IRSA as in PROMPT-04 Part B.
 
 ```hcl
 # live/staging/00-bootstrap/oidc.tf
-# SKIP THIS FILE if the OIDC provider already exists. Import it instead.
+# SKIP until EKS exists in <STAGING_ACCOUNT_ID>.
 
-resource "aws_iam_openid_connect_provider" "eks" {
-  url = "https://<STAGING_OIDC_URL>"
-
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["<EKS_OIDC_THUMBPRINT>"]
-
-  tags = {
-    Name    = "${local.org}-${local.env}-eks-oidc"
-    Service = "bootstrap"
-  }
-}
+# resource "aws_iam_openid_connect_provider" "eks" {
+#   url             = "https://<STAGING_OIDC_URL>"
+#   client_id_list  = ["sts.amazonaws.com"]
+#   thumbprint_list = ["<EKS_OIDC_THUMBPRINT>"]
+# }
 ```
 
-If the OIDC provider already exists, add an import block instead:
-
-```hcl
-import {
-  to = aws_iam_openid_connect_provider.eks
-  id = "<STAGING_OIDC_ARN>"
-}
-```
+**Note:** Prefer the EC2 role trust above. When EKS arrives, either import an existing OIDC provider or create one, then add an IRSA trust statement (PROMPT-04 Part B).
 
 ### Step 11: Write `outputs.tf`
 
@@ -501,7 +474,7 @@ terraform {
 - [ ] `terraform plan` (after migration) shows `No changes. Your infrastructure matches the configuration.`
 - [ ] State file is visible in S3: `aws s3 ls s3://<org>-tfstate-uat-<region>/staging/00-bootstrap/`
 - [ ] Lock file for the bootstrap state object exists alongside the state file (`.terraform.tfstate.lock` object in S3).
-- [ ] The `terraform_exec` role is assumable from the Atlantis pod service account.
+- [ ] The `terraform_exec` role trust allows `<ORG>-uat-atlantis` (EC2 Atlantis role) to assume it.
 - [ ] `.terraform.lock.hcl` is committed for both platforms.
 
 ---

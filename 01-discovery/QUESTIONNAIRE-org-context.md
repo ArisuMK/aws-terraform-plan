@@ -4,10 +4,10 @@
 
 | Section | Required before | Status |
 |---|---|---|
-| A (Bitbucket) | PROMPT-04 Atlantis | Answer when EKS is in this account and you start Atlantis |
+| A (Bitbucket) | PROMPT-04 Atlantis (EC2) | Answer when ready to stand up Atlantis |
 | B (piaas.yml) | PROMPT-05 only | **Deferred — skip for now** |
 | C (Secrets) | PROMPT-16 (tool name earlier is nice-to-have) | Tool name only until secrets work |
-| D–G | As noted in each section | EKS-related answers wait until cluster transfer |
+| D–G | As noted in each section | EKS-specific answers wait until cluster transfer / Part B |
 
 ---
 
@@ -93,10 +93,9 @@ Answer **C1** when you can (ask platform/security: where do secrets live today?)
 
 > **Your answer:** (e.g. `hashicorp/vault` 4.8.0, `hashicorp/aws` for Secrets Manager — or “unknown / deferred”)
 
-**C3.** How does the secrets tool authenticate when called from Terraform running in Atlantis on EKS? Options:
-- IRSA (if the tool is in AWS — e.g. Secrets Manager, Parameter Store)
-- Vault Kubernetes auth method
-- Token/AppRole (static credentials — discouraged)
+**C3.** How does the secrets tool authenticate when called from Terraform running in Atlantis (EC2 interim, later EKS)? Options:
+- Instance profile / IRSA (if the tool is in AWS — e.g. Secrets Manager, Parameter Store)
+- Vault Kubernetes auth method (EKS later) or Vault AppRole/token (EC2 interim — prefer short-lived)
 - Other
 
 > **Your answer:**
@@ -167,7 +166,7 @@ Answer **C1** when you can (ask platform/security: where do secrets live today?)
 
 ## Section F: Network and Connectivity
 
-**F1.** Is Atlantis (running on EKS staging) expected to manage resources in the production account? If so, how does it reach the production account — VPC peering? TGW? Public endpoints?
+**F1.** Is Atlantis (running in staging — EC2 interim, later EKS) expected to manage resources in the production account? If so, how does it reach the production account — VPC peering? TGW? Public endpoints?
 
 > **Your answer:**
 
