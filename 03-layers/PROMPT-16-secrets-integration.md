@@ -1,0 +1,250 @@
+# PROMPT-16: Secrets Integration
+
+## 1. Role and objective
+
+You are a senior SRE integrating Terraform with the company's secrets management tool. This is a cross-cutting concern: every layer that needs to read or write secrets (database passwords, API tokens, certificates) must do so through the secrets provider. You will write a standard pattern for secret reads in Terraform, document how each layer interacts with secrets, and produce the provider configuration and helper locals that every layer can copy.
+
+---
+
+## 2. Preconditions
+
+- [ ] `QUESTIONNAIRE-org-context.md` Section C (secrets management) has been fully answered.
+- [ ] The secrets tool is named, its Terraform provider is known, and the authentication method is confirmed.
+- [ ] PROMPT-10 (identity) is complete: IRSA roles are available for secrets tool authentication if it is AWS-native.
+
+---
+
+## 3. Required inputs
+
+1. `<SECRETS_TOOL>` — tool name (e.g. HashiCorp Vault, AWS Secrets Manager, 1Password, CyberArk).
+2. `<SECRETS_PROVIDER>` — Terraform provider source (e.g. `hashicorp/vault`, `hashicorp/aws`).
+3. `<SECRETS_PROVIDER_VERSION>` — exact version to pin.
+4. `<SECRETS_TOOL_URL>` — endpoint or address (for Vault, 1Password, etc.).
+5. Authentication method: IRSA, Vault Kubernetes auth, token-based, etc.
+6. Namespace/path conventions in the secrets tool for staging vs production.
+
+---
+
+## 4. In scope / out of scope
+
+**In scope:**
+- Provider configuration block for the secrets tool.
+- Standard `locals.tf` snippet for reading secrets that can be pasted into any layer.
+- `versions.tf` addition for the secrets provider.
+- One concrete example: reading the DocumentDB master password from the secrets tool in the `40-data` layer.
+- One concrete example: writing a newly generated secret to the secrets tool.
+- Guidance on secrets that Terraform should never read (avoid putting long-lived static credentials in Terraform state).
+
+**Out of scope:**
+- Setting up the secrets tool itself (assumed to already exist).
+- Rotating secrets (done outside Terraform or via a Lambda/rotation job).
+- Kubernetes external secrets operator (that is in `80-eks`).
+
+---
+
+## 5. Reference material
+
+- `QUESTIONNAIRE-org-context.md` Section C answers.
+- `00-standards/conventions.md` section 6 (secret handling).
+- `00-standards/decisions.md` — open item "Secrets tool name."
+
+---
+
+## 6. Step-by-step procedure
+
+### Step 1: Select the correct provider block based on the secrets tool
+
+**Option A — HashiCorp Vault:**
+
+```hcl
+# versions.tf addition
+terraform {
+  required_providers {
+    vault = {
+      source  = "hashicorp/vault"
+      version = "= <VAULT_PROVIDER_VERSION>"
+    }
+  }
+}
+
+# providers.tf addition
+provider "vault" {
+  address = "<SECRETS_TOOL_URL>"
+  # Auth via Kubernetes auth method (Atlantis on EKS)
+  # Vault must be configured with a Kubernetes auth role for the Atlantis service account.
+  # No static token — auth is dynamic via the pod's service account JWT.
+  auth_login_kubernetes {
+    role = "<ORG>-atlantis-<env>"
+    jwt  = file("/var/run/secrets/kubernetes.io/serviceaccount/token")
+  }
+}
+```
+
+**Option B — AWS Secrets Manager (IRSA-authenticated):**
+
+No additional provider needed — already the `hashicorp/aws` provider. Reading a secret:
+
+```hcl
+data "aws_secretsmanager_secret_version" "docdb_master" {
+  secret_id = "${local.org}/${local.env}/docdb/master-password"
+}
+
+locals {
+  docdb_master_password = jsondecode(
+    data.aws_secretsmanager_secret_version.docdb_master.secret_string
+  ).password
+}
+```
+
+**Option C — 1Password Secrets Automation:**
+
+```hcl
+# versions.tf addition
+terraform {
+  required_providers {
+    onepassword = {
+      source  = "1Password/onepassword"
+      version = "= <1PASSWORD_PROVIDER_VERSION>"
+    }
+  }
+}
+
+provider "onepassword" {
+  url   = "<SECRETS_TOOL_URL>"
+  token = var.op_token   # injected from environment — never hardcoded
+}
+```
+
+**Option D — CyberArk Conjur / AAM:**
+
+```hcl
+# Typically reads via a REST call or environment variable injection.
+# Use the conjur provider or read via a data "http" source pointing to the local agent.
+# Ask the human for the CyberArk team's official Terraform integration guide.
+```
+
+### Step 2: Standard read pattern (paste into each layer that needs secrets)
+
+Define a consistent local naming convention for secrets paths:
+
+```hcl
+# In locals.tf of any layer needing secrets
+locals {
+  secrets_prefix = "${local.org}/${local.env}"
+  # Example path: "acme/staging/docdb/master-password"
+}
+```
+
+Reading pattern (adjust to the actual provider):
+
+```hcl
+# data.tf
+data "aws_secretsmanager_secret_version" "docdb" {
+  secret_id = "${local.secrets_prefix}/docdb/master-password"
+}
+
+# Reference in resources — never output
+locals {
+  docdb_password = jsondecode(data.aws_secretsmanager_secret_version.docdb.secret_string).password
+}
+```
+
+### Step 3: Standard write pattern — new secrets generated by Terraform
+
+```hcl
+# In 40-data/secrets.tf
+resource "random_password" "docdb_master" {
+  length           = 32
+  special          = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
+  # The value is stored in Terraform state — this is acceptable for generated passwords
+  # but the password must ALSO be written to the secrets tool so apps can read it.
+}
+
+# Write to secrets tool:
+resource "aws_secretsmanager_secret_version" "docdb_master" {
+  secret_id = aws_secretsmanager_secret.docdb_master.id
+  secret_string = jsonencode({
+    username = "masteruser"
+    password = random_password.docdb_master.result
+    host     = module.documentdb.cluster_endpoint
+    port     = 27017
+  })
+}
+```
+
+### Step 4: Produce a `secrets-provider.tf.template` file
+
+Create `live/staging/secrets-provider.tf.template` and `live/production/secrets-provider.tf.template` — these are templates that each new layer copies into its directory when it needs secrets access. Fill in the actual provider block from Step 1.
+
+```
+# Copy this file into a layer's directory and rename to secrets-provider.tf
+# when that layer needs to read from <SECRETS_TOOL>.
+# Add the provider version to the layer's versions.tf.
+
+<actual provider block from Step 1>
+```
+
+### Step 5: Inventory of secrets required per layer
+
+Produce a table listing every secret consumed by this infrastructure:
+
+| Layer | Secret path | Purpose | Read or Write |
+|---|---|---|---|
+| 40-data | `<org>/<env>/docdb/master-password` | DocumentDB master credentials | Write (generated) |
+| 04-atlantis | `<org>/<env>/atlantis/bitbucket-token` | Atlantis Bitbucket access | Read |
+| ... | ... | ... | ... |
+
+Ask the human to complete this table for all secrets they are aware of.
+
+### Step 6: Update `versions.tf` across all layers that need the secrets provider
+
+For each layer in `live/staging/` and `live/production/` that uses the secrets provider, add the provider to its `versions.tf`. This is done by updating the relevant layer files, not here.
+
+Provide the human with the exact `required_providers` block addition to paste.
+
+---
+
+## 7. Expected file tree
+
+```
+live/
+  staging/
+    secrets-provider.tf.template
+  production/
+    secrets-provider.tf.template
+```
+
+No new Terraform root modules are created — this prompt adds snippets to existing layers and produces templates.
+
+---
+
+## 8. Code contracts
+
+The secrets provider MUST be configured with dynamic authentication (IRSA, Kubernetes auth, OIDC). Static tokens or API keys in the Terraform code or state are not acceptable.
+
+Secrets values MUST NOT appear in `outputs.tf`. Only ARNs, paths, or IDs of the secret resource itself may be output.
+
+---
+
+## 9. Acceptance criteria
+
+- [ ] `terraform validate` passes in the `40-data` layer with the secrets provider configured.
+- [ ] `terraform plan` in `40-data` successfully reads the DocumentDB password from the secrets tool (no error).
+- [ ] The secrets table is complete.
+- [ ] No secret values appear in the plan output.
+
+---
+
+## 10. Guardrails
+
+- Never output secret values from Terraform — only ARNs/paths.
+- Never commit static tokens or API keys.
+- Never use `terraform_remote_state` to read secrets from another layer's state — secrets do not belong in Terraform state outputs.
+- If the secrets tool is unavailable at plan time, the plan will fail — this is expected behavior, not a bug.
+
+---
+
+## 11. Handoff note
+
+Report: secrets tool confirmed, provider block written, authentication method working (confirmed with a real `terraform plan` against the `40-data` layer), and the complete secrets inventory table.
