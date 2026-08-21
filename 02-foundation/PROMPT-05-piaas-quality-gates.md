@@ -1,5 +1,7 @@
 # PROMPT-05: piaas.yml Quality Gates
 
+> **Deferred.** Do not run this prompt until the platform team can provide `piaas.yml` schema, runner images, and trigger syntax (questionnaire Section B). Bootstrap, Atlantis, and infrastructure layers proceed without it.
+
 ## 1. Role and objective
 
 You are a senior SRE writing the `piaas.yml` pipeline configuration for the infra monorepo. This pipeline runs fast, stateless quality gates on every push and PR — formatting check, schema validation, lint, security scan, and docs check. It never runs `terraform plan` or `apply`. Those belong to Atlantis. By the end of this prompt, every PR to the infra repo triggers a passing or failing quality gate in under 5 minutes, giving the team early feedback before Atlantis plans.

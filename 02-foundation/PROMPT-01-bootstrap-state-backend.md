@@ -29,7 +29,7 @@ Ask the human to confirm:
 2. `<STAGING_ACCOUNT_ID>` and `<STAGING_REGION>`.
 3. `<PRODUCTION_ACCOUNT_ID>` and `<PRODUCTION_REGION>`.
 4. Any existing IAM roles that must NOT be modified or deleted (from the inventory, Section D of the questionnaire).
-5. Should the bootstrap role be assumable from the staging EKS OIDC provider (for Atlantis)? If yes, provide `<STAGING_OIDC_URL>` and `<STAGING_OIDC_ARN>`.
+5. Staging EKS OIDC for Atlantis trust: **usually "not yet"**. If the staging EKS cluster is still in another account (to be transferred later), skip OIDC provider creation and Atlantis trust statements now. Revisit after transfer when `<STAGING_OIDC_URL>` and `<STAGING_OIDC_ARN>` exist in this account. Only if the cluster is already in `<STAGING_ACCOUNT_ID>` should bootstrap wire IRSA trust.
 
 ---
 
@@ -39,8 +39,8 @@ Ask the human to confirm:
 - S3 state bucket per account with versioning, SSE-KMS, public access block, TLS-only bucket policy.
 - KMS key and alias for state bucket encryption.
 - IAM execution role (`<ORG>-<env>-terraform-exec`) per account, with an inline policy granting all Terraform operations.
-- IAM trust policy on the execution role: trust the Atlantis pod's OIDC identity (staging EKS OIDC provider).
-- OIDC provider for the staging EKS cluster (if not already created — check inventory).
+- IAM trust policy on the execution role: human/bootstrap principal now; **add** Atlantis pod OIDC trust later when staging EKS is in this account (PROMPT-04).
+- OIDC provider for the staging EKS cluster — **only if** the cluster already exists in this account; otherwise defer.
 - Instructions for the one-time manual bootstrap procedure.
 
 **Out of scope:**
@@ -101,14 +101,14 @@ terraform {
   backend "local" {}
 
   # backend "s3" {
-  #   bucket       = "<ORG>-tfstate-stg-<STAGING_REGION>"
+  #   bucket       = "<ORG>-tfstate-uat-<STAGING_REGION>"
   #   key          = "staging/00-bootstrap/terraform.tfstate"
   #   region       = "<STAGING_REGION>"
   #   encrypt      = true
-  #   kms_key_id   = "alias/<ORG>-stg-tfstate"
+  #   kms_key_id   = "alias/<ORG>-uat-tfstate"
   #   use_lockfile = true
   #   assume_role  = {
-  #     role_arn = "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-stg-terraform-exec"
+  #     role_arn = "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-terraform-exec"
   #   }
   # }
 
@@ -160,7 +160,7 @@ During bootstrapping, the human runs with their own credentials — no `assume_r
 
 locals {
   org        = "<ORG>"
-  env        = "stg"
+  env      = "uat"
   env_long   = "staging"
   layer      = "00-bootstrap"
   region     = "<STAGING_REGION>"
@@ -499,7 +499,7 @@ terraform {
 
 - [ ] `terraform validate` passes in both `staging/00-bootstrap` and `production/00-bootstrap`.
 - [ ] `terraform plan` (after migration) shows `No changes. Your infrastructure matches the configuration.`
-- [ ] State file is visible in S3: `aws s3 ls s3://<org>-tfstate-stg-<region>/staging/00-bootstrap/`
+- [ ] State file is visible in S3: `aws s3 ls s3://<org>-tfstate-uat-<region>/staging/00-bootstrap/`
 - [ ] Lock file for the bootstrap state object exists alongside the state file (`.terraform.tfstate.lock` object in S3).
 - [ ] The `terraform_exec` role is assumable from the Atlantis pod service account.
 - [ ] `.terraform.lock.hcl` is committed for both platforms.

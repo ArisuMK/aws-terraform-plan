@@ -42,7 +42,7 @@ You are a senior SRE setting up the `<MODULES_REPO>` Terraform module library. T
 ## 5. Reference material
 
 - `00-standards/conventions.md` — sections 1 (module layout), 2 (naming), 4 (provider versions), 5 (variable/output style).
-- Reference module convention: Pier's `pier-anomalies-tf-module` had no outputs and no tests — explicitly improve on this.
+- Reference module convention: every module must ship outputs and tests — do not ship modules with neither.
 
 ---
 

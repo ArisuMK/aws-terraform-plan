@@ -86,7 +86,7 @@ resource "aws_vpc" "this" {
 module "vpc" {
   source = "git::ssh://git@<BITBUCKET_SSH_HOST>:7999/<BB_PROJECT>/<MODULES_REPO>.git//modules/vpc?ref=v1.0.0"
 
-  name                 = "<org>-stg-vpc"
+  name                 = "<org>-uat-vpc"
   cidr_block           = "10.0.0.0/16"
   azs                  = ["us-east-1a", "us-east-1b"]
   private_subnet_cidrs = ["10.0.0.0/24", "10.0.1.0/24"]

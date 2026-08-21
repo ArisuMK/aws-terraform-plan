@@ -20,7 +20,7 @@ You are a senior SRE creating the full scaffold of the `<INFRA_REPO>` infrastruc
 1. `<ORG>`, `<INFRA_REPO>`
 2. `<STAGING_ACCOUNT_ID>`, `<STAGING_REGION>`
 3. `<PRODUCTION_ACCOUNT_ID>`, `<PRODUCTION_REGION>`
-4. State bucket names from PROMPT-01 (e.g. `<ORG>-tfstate-stg-<STAGING_REGION>`)
+4. State bucket names from PROMPT-01 (e.g. `<ORG>-tfstate-uat-<STAGING_REGION>`)
 5. Exec role ARNs from PROMPT-01
 6. `<ATLANTIS_WEBHOOK_SECRET>` — a pre-generated secret (from the secrets tool)
 

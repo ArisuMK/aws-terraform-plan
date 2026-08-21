@@ -17,7 +17,7 @@ You are a senior SRE building the `30-dns` layer for both staging and production
 ## 3. Required inputs
 
 1. `<PUBLIC_DOMAIN>` — e.g. `acme.com`.
-2. `<STAGING_DOMAIN>` — e.g. `stg.acme.com`.
+2. `<STAGING_DOMAIN>` — e.g. `uat.acme.com`.
 3. `<PRODUCTION_DOMAIN>` — e.g. `acme.com` (apex) or `prd.acme.com`.
 4. Existing Route53 zone IDs, if any (import or use data sources).
 5. Whether the apex domain (`acme.com`) is used for production or only subdomains.
@@ -56,10 +56,10 @@ You are a senior SRE building the `30-dns` layer for both staging and production
 data "terraform_remote_state" "network" {
   backend = "s3"
   config = {
-    bucket       = "<ORG>-tfstate-stg-<STAGING_REGION>"
+    bucket       = "<ORG>-tfstate-uat-<STAGING_REGION>"
     key          = "staging/20-network/terraform.tfstate"
     region       = "<STAGING_REGION>"
-    assume_role  = { role_arn = "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-stg-terraform-exec" }
+    assume_role  = { role_arn = "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-terraform-exec" }
   }
 }
 ```

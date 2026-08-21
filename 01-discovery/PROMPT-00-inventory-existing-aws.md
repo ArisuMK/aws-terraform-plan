@@ -114,9 +114,11 @@ aws ec2 describe-vpc-peering-connections --output table
 
 ### Step 4: EKS
 
+**Expected for this org:** staging EKS may be **absent** from the account you are inventorying (cluster still in another account pending transfer). If `list-clusters` is empty, record “none in this account — deferred” and skip the describe calls. Do not invent placeholder cluster names.
+
 ```bash
 aws eks list-clusters
-# For each cluster:
+# For each cluster (only if any exist in this account):
 aws eks describe-cluster --name <cluster-name>
 aws eks list-nodegroups --cluster-name <cluster-name>
 # For each node group:
@@ -126,7 +128,7 @@ aws eks list-fargate-profiles --cluster-name <cluster-name>
 aws iam list-open-id-connect-providers
 ```
 
-Record the OIDC provider URL — required for IRSA.
+Record the OIDC provider URL only when a cluster exists here — required later for IRSA / Atlantis.
 
 ### Step 5: EC2 compute
 

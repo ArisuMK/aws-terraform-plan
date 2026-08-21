@@ -1,5 +1,7 @@
 # PROMPT-04: Atlantis on Bitbucket Data Center
 
+> **Deferred until staging EKS is in this account.** The cluster currently lives elsewhere and will be transferred later. Do not run this prompt until `<STAGING_EKS_CLUSTER>`, `<STAGING_OIDC_ARN>`, and `<STAGING_OIDC_URL>` are discoverable in `<STAGING_ACCOUNT_ID>` and `kubectl` works against that cluster. Bootstrap, scaffold, modules, and non-EKS layers proceed without Atlantis (interim local applies allowed).
+
 ## 1. Role and objective
 
 You are a senior SRE deploying Atlantis onto the existing staging EKS cluster using Helm and IRSA (IAM Roles for Service Accounts). Atlantis will use Bitbucket Data Center webhooks to receive PR events, post plan output as PR comments, and apply Terraform changes when authorized. After this prompt is complete, the team can manage all Terraform through PR comments — no one runs `terraform apply` locally ever again.
@@ -8,7 +10,7 @@ You are a senior SRE deploying Atlantis onto the existing staging EKS cluster us
 
 ## 2. Preconditions
 
-- [ ] PROMPT-01 is complete: the `<ORG>-stg-terraform-exec` and `<ORG>-prd-terraform-exec` IAM roles exist.
+- [ ] PROMPT-01 is complete: the `<ORG>-uat-terraform-exec` and `<ORG>-prd-terraform-exec` IAM roles exist.
 - [ ] PROMPT-02 is complete: `atlantis.yaml` is in the infra repo.
 - [ ] `QUESTIONNAIRE-org-context.md` Sections A (Bitbucket DC) and D (identity) have been answered.
 - [ ] `fill-in-the-blanks.local.md` has: `<STAGING_EKS_CLUSTER>`, `<STAGING_OIDC_ARN>`, `<STAGING_OIDC_URL>`, `<ATLANTIS_NAMESPACE>`, `<ATLANTIS_WEBHOOK_SECRET>`, `<ATLANTIS_BB_USER>`, `<ATLANTIS_BB_TOKEN>`, `<BITBUCKET_BASE_URL>`.
@@ -36,12 +38,12 @@ You are a senior SRE deploying Atlantis onto the existing staging EKS cluster us
 ## 4. In scope / out of scope
 
 **In scope:**
-- IRSA IAM role for the Atlantis pod (`<ORG>-stg-atlantis`).
+- IRSA IAM role for the Atlantis pod (`<ORG>-uat-atlantis`).
 - Kubernetes namespace, ServiceAccount, and IRSA annotation.
 - Atlantis Helm chart values file.
 - Kubernetes Secret for Bitbucket token and webhook secret.
 - Bitbucket DC webhook configuration instructions.
-- Cross-account role chaining: Atlantis assumes `<ORG>-stg-atlantis` (via IRSA), then assumes `<ORG>-stg-terraform-exec` and `<ORG>-prd-terraform-exec`.
+- Cross-account role chaining: Atlantis assumes `<ORG>-uat-atlantis` (via IRSA), then assumes `<ORG>-uat-terraform-exec` and `<ORG>-prd-terraform-exec`.
 - Atlantis server-side configuration for `repos.yaml` (repo allowlist, workflow overrides).
 - Instructions for verifying the webhook.
 
@@ -91,11 +93,11 @@ data "aws_iam_policy_document" "atlantis_trust" {
 }
 
 resource "aws_iam_role" "atlantis" {
-  name               = "<ORG>-stg-atlantis"
+  name               = "<ORG>-uat-atlantis"
   assume_role_policy = data.aws_iam_policy_document.atlantis_trust.json
 
   tags = {
-    Name    = "<ORG>-stg-atlantis"
+    Name    = "<ORG>-uat-atlantis"
     Service = "atlantis"
   }
 }
@@ -106,7 +108,7 @@ data "aws_iam_policy_document" "atlantis_assume_exec" {
     effect    = "Allow"
     actions   = ["sts:AssumeRole"]
     resources = [
-      "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-stg-terraform-exec",
+      "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-terraform-exec",
       "arn:aws:iam::<PRODUCTION_ACCOUNT_ID>:role/<ORG>-prd-terraform-exec",
     ]
   }
@@ -119,7 +121,7 @@ resource "aws_iam_role_policy" "atlantis_assume_exec" {
 }
 ```
 
-**Important:** The `<ORG>-stg-terraform-exec` and `<ORG>-prd-terraform-exec` roles must trust the Atlantis role in their trust policies (set up in PROMPT-01).
+**Important:** The `<ORG>-uat-terraform-exec` and `<ORG>-prd-terraform-exec` roles must trust the Atlantis role in their trust policies (set up in PROMPT-01).
 
 ### Step 2: Kubernetes namespace and ServiceAccount
 
@@ -137,7 +139,7 @@ metadata:
   name: atlantis
   namespace: <ATLANTIS_NAMESPACE>
   annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-stg-atlantis
+    eks.amazonaws.com/role-arn: arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-atlantis
 ```
 
 ### Step 3: Kubernetes secrets
@@ -173,7 +175,7 @@ serviceAccount:
   create: true
   name: atlantis
   annotations:
-    eks.amazonaws.com/role-arn: "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-stg-atlantis"
+    eks.amazonaws.com/role-arn: "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-atlantis"
 
 service:
   type: ClusterIP    # expose via Ingress below, not LoadBalancer
@@ -314,7 +316,7 @@ kubectl exec -n <ATLANTIS_NAMESPACE> \
   -- aws sts get-caller-identity
 ```
 
-The caller identity should show the `<ORG>-stg-atlantis` role.
+The caller identity should show the `<ORG>-uat-atlantis` role.
 
 ### Step 9: Test with a real PR
 
@@ -342,7 +344,7 @@ live/staging/10-identity/
 
 The Atlantis pod must:
 - Use IRSA (not static AWS credentials).
-- Assume `<ORG>-stg-atlantis`, which then assumes `<ORG>-stg-terraform-exec` or `<ORG>-prd-terraform-exec` per project.
+- Assume `<ORG>-uat-atlantis`, which then assumes `<ORG>-uat-terraform-exec` or `<ORG>-prd-terraform-exec` per project.
 - Pin an exact Atlantis version tag.
 - Validate webhook signatures via `ATLANTIS_BITBUCKET_WEBHOOK_SECRET`.
 
@@ -351,7 +353,7 @@ The Atlantis pod must:
 ## 9. Acceptance criteria
 
 - [ ] `kubectl get pods -n <ATLANTIS_NAMESPACE>` shows `Running` and `Ready`.
-- [ ] `aws sts get-caller-identity` from inside the Atlantis pod returns the `<ORG>-stg-atlantis` role.
+- [ ] `aws sts get-caller-identity` from inside the Atlantis pod returns the `<ORG>-uat-atlantis` role.
 - [ ] Opening a test PR triggers a plan comment from Atlantis within 60 seconds.
 - [ ] `atlantis plan` typed as a PR comment re-plans successfully.
 - [ ] `atlantis apply` typed as a PR comment (by an authorized user on an approved PR) applies successfully.
@@ -374,6 +376,6 @@ The Atlantis pod must:
 When complete, report:
 1. Atlantis pod name and image version.
 2. URL at which Atlantis is reachable.
-3. Role chain confirmed: Atlantis pod → `<ORG>-stg-atlantis` → `<ORG>-stg-terraform-exec`.
+3. Role chain confirmed: Atlantis pod → `<ORG>-uat-atlantis` → `<ORG>-uat-terraform-exec`.
 4. Result of the test PR (plan comment received yes/no).
 5. Any deviations (e.g. ingress class used, chart version pinned).

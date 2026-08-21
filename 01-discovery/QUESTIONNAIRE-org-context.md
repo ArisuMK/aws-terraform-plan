@@ -1,6 +1,13 @@
 # Questionnaire: Organization Context
 
-**Instructions for you (the human):** Answer every question in this file before running `PROMPT-04-atlantis-on-bitbucket-dc.md`, `PROMPT-05-piaas-quality-gates.md`, or `PROMPT-16-secrets-integration.md`. The executing AI cannot infer these answers from AWS. Write your answers directly in this file under each question.
+**Instructions for you (the human):** Answer the sections you need before the matching prompt. The executing AI cannot infer these answers from AWS. Write your answers directly in this file under each question.
+
+| Section | Required before | Status |
+|---|---|---|
+| A (Bitbucket) | PROMPT-04 Atlantis | Answer when EKS is in this account and you start Atlantis |
+| B (piaas.yml) | PROMPT-05 only | **Deferred — skip for now** |
+| C (Secrets) | PROMPT-16 (tool name earlier is nice-to-have) | Tool name only until secrets work |
+| D–G | As noted in each section | EKS-related answers wait until cluster transfer |
 
 ---
 
@@ -36,7 +43,9 @@
 
 ---
 
-## Section B: piaas.yml Platform Pipeline
+## Section B: piaas.yml Platform Pipeline — DEFERRED
+
+Skip this entire section until you deliberately start `PROMPT-05-piaas-quality-gates.md`. Atlantis, bootstrap, and infra layers do not depend on these answers. When ready, ask your platform team (or copy a working `piaas.yml` from another repo).
 
 **B1.** What version of `piaas.yml` does your platform use? (Check with your platform team or look at existing `piaas.yml` files in other repos.)
 
@@ -74,13 +83,15 @@
 
 ## Section C: Secrets Management
 
+Answer **C1** when you can (ask platform/security: where do secrets live today?). **C2–C6** can wait until `PROMPT-16`.
+
 **C1.** What secrets tool is already in use at the company?
 
 > **Your answer:** (e.g. HashiCorp Vault, AWS Secrets Manager, CyberArk, 1Password Secrets Automation, Doppler, Azure Key Vault, Bitwarden Secrets Manager)
 
-**C2.** Is there a Terraform provider for this tool? If yes, what is the provider source and typical version used?
+**C2.** Terraform provider for that tool — leave blank until PROMPT-16 unless you already know it. This is *not* a secret: it is the plugin Terraform uses to talk to the tool (e.g. `hashicorp/aws` if you use Secrets Manager, `hashicorp/vault` if you use Vault). Ask whoever owns the secrets platform, or leave for later.
 
-> **Your answer:** (e.g. `hashicorp/vault` 4.8.0, `hashicorp/aws` for Secrets Manager)
+> **Your answer:** (e.g. `hashicorp/vault` 4.8.0, `hashicorp/aws` for Secrets Manager — or “unknown / deferred”)
 
 **C3.** How does the secrets tool authenticate when called from Terraform running in Atlantis on EKS? Options:
 - IRSA (if the tool is in AWS — e.g. Secrets Manager, Parameter Store)

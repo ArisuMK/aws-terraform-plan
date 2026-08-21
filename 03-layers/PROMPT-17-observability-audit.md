@@ -79,10 +79,10 @@ data "aws_region" "current" {}
 data "terraform_remote_state" "storage" {
   backend = "s3"
   config = {
-    bucket      = "<ORG>-tfstate-stg-<STAGING_REGION>"
+    bucket      = "<ORG>-tfstate-uat-<STAGING_REGION>"
     key         = "staging/60-storage/terraform.tfstate"
     region      = "<STAGING_REGION>"
-    assume_role = { role_arn = "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-stg-terraform-exec" }
+    assume_role = { role_arn = "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-terraform-exec" }
   }
 }
 ```

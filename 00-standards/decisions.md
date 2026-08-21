@@ -13,7 +13,7 @@ This file contains the key architectural decisions for this Terraform setup. Eac
 
 Terraform state must be stored remotely and locked to prevent concurrent applies from corrupting it. Historically the standard pattern used S3 for storage plus DynamoDB for locking. As of Terraform 1.11, DynamoDB-based locking is officially deprecated.
 
-The previous org (reference: `pier-infrastructure`) used S3 backends with no locking at all, which is not acceptable for a multi-person team.
+Prior setups that used S3 backends with no locking at all are not acceptable for a multi-person team.
 
 ### Decision
 
@@ -72,7 +72,9 @@ We evaluated:
 
 ### Decision
 
-Deploy Atlantis on the existing EKS staging cluster with IRSA. It assumes `terraform-exec` IAM roles in each target account using the EKS pod's OIDC identity.
+Deploy Atlantis on the staging EKS cluster with IRSA once that cluster is available **in the staging account managed by this pack**. It assumes `terraform-exec` IAM roles in each target account using the EKS pod's OIDC identity.
+
+**Current constraint:** the staging EKS cluster may still live in another AWS account and will be transferred later. Until then, PROMPT-04 is deferred; bootstrap and non-EKS layers proceed without Atlantis (local apply with the exec role is allowed as an interim exception).
 
 - Bitbucket DC VCS config: `--vcs bitbucketserver`, `--bitbucket-base-url`, `--bitbucket-webhook-secret`.
 - Atlantis config: `atlantis.yaml` at repo root, one project per `live/<env>/<layer>` directory.
@@ -83,7 +85,8 @@ Deploy Atlantis on the existing EKS staging cluster with IRSA. It assumes `terra
 ### Consequences
 
 - Atlantis must have network access to Bitbucket DC (HTTPS webhooks inbound to Atlantis, Atlantis calls Bitbucket API).
-- EKS cluster and IRSA are required before Atlantis can operate — bootstrapping must handle this chicken-and-egg problem (see `PROMPT-01`).
+- EKS cluster and IRSA in **this** staging account are required before Atlantis can operate — do not block bootstrap/modules/layers on Atlantis while the cluster is still elsewhere.
+- After cluster transfer: add OIDC trust to exec roles, run PROMPT-04, then stop local applies.
 - Team members approve PRs in Bitbucket; they type `atlantis apply` in the PR comment, not via AWS console or CLI.
 
 ---
@@ -95,7 +98,7 @@ Deploy Atlantis on the existing EKS staging cluster with IRSA. It assumes `terra
 
 ### Context
 
-Pier used one module repo per module (`pier-rds-tf-module`, `pier-s3-tf-module`, `pier-irsa-tf-module`, …), resulting in version drift: the same `pier-data-tf-module` was at v1.9.2 in prod and v1.10.0 in staging.
+One-repo-per-module layouts (e.g. separate repos for RDS, S3, IRSA, …) tend to cause version drift: the same logical module can sit at different versions in prod vs staging.
 
 An alternative is to colocate modules in the infra monorepo (`modules/` subdirectory). This simplifies the source string but makes it impossible to version modules independently, and every module change triggers an Atlantis plan across all roots.
 
@@ -118,7 +121,7 @@ Version bumps are a deliberate PR to the infra repo — visible in the diff, rev
 
 - Bitbucket DC must allow SSH key access from the Atlantis pod for module downloads.
 - Or: use HTTPS with a service-account token in `GIT_CREDENTIALS` env var on the Atlantis deployment.
-- Module repo uses semantic-release with conventional commits, same pattern as `pier-anomalies-tf-module`.
+- Module repo uses semantic-release with conventional commits.
 - Releases are triggered by push to `main`; a GitHub-style tag (`v1.3.0`) is created automatically.
 
 ---
@@ -172,7 +175,7 @@ Workflow:
 
 ### Context
 
-Pier's `terraform/aws/prod/` was a single flat root with every resource in one state. This caused long plan times, wide blast radius, and implicit dependencies between resources managed in one apply.
+A single flat root (e.g. `terraform/aws/prod/` with every resource in one state) causes long plan times, wide blast radius, and implicit dependencies between resources managed in one apply.
 
 Alternative: Terragrunt with `dependency {}` blocks for DRY root module references. Adds a tool, a learning curve, and complexity that the team may not need yet.
 
@@ -237,8 +240,8 @@ Plan and apply are exclusively Atlantis. The pipeline and Atlantis are independe
 ### Consequences
 
 - `piaas.yml` never holds `AWS_ACCESS_KEY_ID` or `AWS_SECRET_ACCESS_KEY`.
-- Need to know the exact `piaas.yml` schema and available runner images before writing `PROMPT-05`. See `QUESTIONNAIRE-org-context.md`.
-- All Terraform tool versions in `piaas.yml` must match `.terraform-version` and Atlantis's configured version.
+- PROMPT-05 is **deferred** until the platform team provides schema/runner details (or a sample `piaas.yml`). Atlantis and the Terraform layers do not depend on it.
+- When implemented, all Terraform tool versions in `piaas.yml` must match `.terraform-version` and Atlantis's configured version.
 
 ---
 
@@ -249,7 +252,7 @@ Plan and apply are exclusively Atlantis. The pipeline and Atlantis are independe
 
 ### Context
 
-EKS was provisioned by a company platform automation tool and has an existing Terraform state file. The platform may continue mutating the cluster. If we write EKS Terraform that conflicts with the platform, we risk destructive plan diffs.
+EKS may have been provisioned by a company platform automation tool (possibly in another AWS account) and may still have an existing Terraform state file owned by that platform. The staging cluster for this pack is **not assumed to exist in the staging account yet** — it may be transferred later. The platform may continue mutating the cluster. If we write EKS Terraform that conflicts with the platform, we risk destructive plan diffs.
 
 ### Decision
 

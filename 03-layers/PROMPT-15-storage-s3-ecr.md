@@ -75,10 +75,10 @@ data "aws_elb_service_account" "main" {}   # needed for ALB access log bucket po
 data "terraform_remote_state" "bootstrap" {
   backend = "s3"
   config = {
-    bucket      = "<ORG>-tfstate-stg-<STAGING_REGION>"
+    bucket      = "<ORG>-tfstate-uat-<STAGING_REGION>"
     key         = "staging/00-bootstrap/terraform.tfstate"
     region      = "<STAGING_REGION>"
-    assume_role = { role_arn = "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-stg-terraform-exec" }
+    assume_role = { role_arn = "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-terraform-exec" }
   }
 }
 

@@ -78,14 +78,14 @@ live/staging/20-network/
 ```hcl
 locals {
   org        = "<ORG>"
-  env        = "stg"
+  env      = "uat"
   env_long   = "staging"
   layer      = "20-network"
   region     = data.aws_region.current.name
   account_id = data.aws_caller_identity.current.account_id
 
   # EKS cluster name — needed for subnet tags
-  eks_cluster_name = "<ORG>-stg-eks"
+  eks_cluster_name = "<ORG>-uat-eks"
 
   azs = ["<REGION>a", "<REGION>b", "<REGION>c"]  # adjust to actual AZs
 

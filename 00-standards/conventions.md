@@ -94,21 +94,21 @@ Split main resources into domain files when a single `main.tf` would exceed ~150
 Pattern: `<org>-<env>-<service>[-<detail>]`
 
 - All lowercase, hyphens only — no underscores in AWS resource names.
-- `<env>`: `stg` for staging, `prd` for production.
+- `<env>`: `uat` for UAT/staging, `prd` for production.
 - `<service>`: short descriptor (vpc, eks, rds, alb, etc.).
 - `<detail>`: optional qualifier (main, private, public, a, b, c).
 
 Examples:
 
-| Resource | Staging name | Production name |
+| Resource | UAT name | Production name |
 |---|---|---|
-| VPC | `<org>-stg-vpc` | `<org>-prd-vpc` |
-| EKS cluster | `<org>-stg-eks` | `<org>-prd-eks` |
-| DocumentDB cluster | `<org>-stg-docdb-main` | `<org>-prd-docdb-main` |
-| State S3 bucket | `<org>-tfstate-stg-<region>` | `<org>-tfstate-prd-<region>` |
-| IAM execution role | `<org>-stg-terraform-exec` | `<org>-prd-terraform-exec` |
-| KMS alias | `alias/<org>-stg-tfstate` | `alias/<org>-prd-tfstate` |
-| ALB | `<org>-stg-alb-main` | `<org>-prd-alb-main` |
+| VPC | `<org>-uat-vpc` | `<org>-prd-vpc` |
+| EKS cluster | `<org>-uat-eks` | `<org>-prd-eks` |
+| DocumentDB cluster | `<org>-uat-docdb-main` | `<org>-prd-docdb-main` |
+| State S3 bucket | `<org>-tfstate-uat-<region>` | `<org>-tfstate-prd-<region>` |
+| IAM execution role | `<org>-uat-terraform-exec` | `<org>-prd-terraform-exec` |
+| KMS alias | `alias/<org>-uat-tfstate` | `alias/<org>-prd-tfstate` |
+| ALB | `<org>-uat-alb-main` | `<org>-prd-alb-main` |
 | ECR repo | `<org>-<service>` (no env, shared across accounts) | — |
 
 ### Terraform identifiers (HCL resource/module labels)
@@ -123,7 +123,7 @@ resource "aws_iam_role" "terraform_exec" { ... }
 
 # Bad — env suffix redundant and coupling
 resource "aws_vpc" "main_staging" { ... }
-resource "aws_iam_role" "terraform_exec_stg" { ... }
+resource "aws_iam_role" "terraform_exec_uat" { ... }
 ```
 
 ### State key pattern
@@ -188,7 +188,7 @@ resource "aws_vpc" "main" {
 }
 ```
 
-Rationale: Pier applied tags via `merge(local.common_tags, {...})` on every resource, causing many resources to miss tags when the pattern was forgotten. Provider-level `default_tags` makes the base set non-bypassable.
+Rationale: Applying tags via `merge(local.common_tags, {...})` on every resource causes many resources to miss tags when the pattern is forgotten. Provider-level `default_tags` makes the base set non-bypassable.
 
 ### Required tag keys and allowed values
 
@@ -248,7 +248,7 @@ Rules:
 ```hcl
 locals {
   org      = "acme"
-  env      = "stg"
+  env      = "uat"
   env_long = "staging"
   layer    = "20-network"
   region   = data.aws_region.current.name

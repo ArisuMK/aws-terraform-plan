@@ -8,22 +8,24 @@ You are a senior SRE building the `10-identity` layer for both staging and produ
 
 ## 2. Preconditions
 
-- [ ] PROMPT-01 complete: exec roles and state buckets exist. Atlantis is managing state via S3.
+- [ ] PROMPT-01 complete: exec roles and state buckets exist.
 - [ ] PROMPT-02 complete: infra repo scaffolded.
-- [ ] PROMPT-04 complete: Atlantis is running and posting plan comments.
+- [ ] PROMPT-04 complete **or deferred**: if staging EKS is not in this account yet, skip Atlantis IRSA pieces and proceed with non-EKS identity work; revisit after cluster transfer.
 - [ ] `PROMPT-00` inventory complete: existing IAM roles listed. Import candidates identified.
-- [ ] `fill-in-the-blanks.local.md` has: `<ORG>`, `<STAGING_ACCOUNT_ID>`, `<PRODUCTION_ACCOUNT_ID>`, `<STAGING_OIDC_URL>`, `<STAGING_OIDC_ARN>`.
+- [ ] `fill-in-the-blanks.local.md` has: `<ORG>`, `<STAGING_ACCOUNT_ID>`, `<PRODUCTION_ACCOUNT_ID>`. OIDC fields only if EKS is already in this account.
+
+Until Atlantis exists, applies for this layer use the interim local-apply exception (exec role), documented in git/PRs.
 
 ---
 
 ## 3. Required inputs
 
 1. `<ORG>`, `<STAGING_ACCOUNT_ID>`, `<PRODUCTION_ACCOUNT_ID>`.
-2. `<STAGING_OIDC_URL>` and `<STAGING_OIDC_ARN>` — from PROMPT-01 or inventory.
+2. `<STAGING_OIDC_URL>` and `<STAGING_OIDC_ARN>` — **only if** staging EKS is already in this account; otherwise defer IRSA/Atlantis role work.
 3. List of existing IAM roles from the inventory that must be imported (not deleted and recreated).
 4. Does the company use GitHub Actions for application CI/CD? If yes, provide the GitHub org name — an OIDC provider for GitHub will be added.
 5. Does the company use AWS SSO (IAM Identity Center)? If yes, are SSO assignments managed here or by a separate team?
-6. List of application IRSA roles that are already known (from the EKS inventory) — provide role names and the associated K8s service account names.
+6. List of application IRSA roles that are already known — defer if the cluster is not in this account yet.
 
 ---
 
@@ -31,12 +33,10 @@ You are a senior SRE building the `10-identity` layer for both staging and produ
 
 **In scope:**
 - Terraform execution roles (if not already handled by PROMPT-01 — confirm).
-- Atlantis IRSA role (`<ORG>-stg-atlantis`) — include the HCL from PROMPT-04.
-- OIDC providers: EKS OIDC (for IRSA) and optionally GitHub Actions OIDC.
-- AWS Load Balancer Controller IRSA role.
-- External DNS IRSA role.
-- EBS CSI driver IRSA role.
-- Application IRSA roles for services running on EKS (import existing ones).
+- Atlantis IRSA role (`<ORG>-uat-atlantis`) — include when PROMPT-04 is unblocked; otherwise leave a stub/`TODO` and skip apply of that resource.
+- OIDC providers: EKS OIDC (for IRSA) **when the cluster exists in this account**; optionally GitHub Actions OIDC.
+- AWS Load Balancer Controller / External DNS / EBS CSI IRSA roles — defer until EKS is in this account unless roles already exist here to import.
+- Application IRSA roles for services running on EKS (import existing ones) — same deferral rule.
 - Customer-managed IAM policies (audit and import from inventory).
 - KMS key policies (if KMS keys are managed in this layer).
 
@@ -80,14 +80,14 @@ live/staging/10-identity/
 ```hcl
 terraform {
   backend "s3" {
-    bucket       = "<ORG>-tfstate-stg-<STAGING_REGION>"
+    bucket       = "<ORG>-tfstate-uat-<STAGING_REGION>"
     key          = "staging/10-identity/terraform.tfstate"
     region       = "<STAGING_REGION>"
     encrypt      = true
-    kms_key_id   = "alias/<ORG>-stg-tfstate"
+    kms_key_id   = "alias/<ORG>-uat-tfstate"
     use_lockfile = true
     assume_role  = {
-      role_arn = "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-stg-terraform-exec"
+      role_arn = "arn:aws:iam::<STAGING_ACCOUNT_ID>:role/<ORG>-uat-terraform-exec"
     }
   }
   required_version = "~> 1.11"
@@ -116,7 +116,7 @@ provider "aws" {
 ```hcl
 locals {
   org        = "<ORG>"
-  env        = "stg"
+  env      = "uat"
   env_long   = "staging"
   layer      = "10-identity"
   region     = data.aws_region.current.name

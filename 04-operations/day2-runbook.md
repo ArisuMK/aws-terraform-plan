@@ -147,7 +147,7 @@ Then add a new `import {}` block or re-run `terraform apply` to regenerate. This
 
 ```bash
 # Check if the resource exists in AWS
-aws ec2 describe-vpcs --filters "Name=tag:Name,Values=<org>-stg-vpc"
+aws ec2 describe-vpcs --filters "Name=tag:Name,Values=<org>-uat-vpc"
 
 # Check if it exists in state
 terraform -chdir=live/staging/20-network state list | grep vpc
